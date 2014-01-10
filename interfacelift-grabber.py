@@ -5,22 +5,36 @@ from urllib import request
 from urllib import response
 import datetime
 import os
+import sys
 import re
+from string import Template
 
 UA = 'Mozilla/5.0 (X11; Linux i686; rv:24.0) Gecko/20140108 Firefox/24.0'
-prefix = 'http://interfacelift.com'
+class SkipException(Exception):
+    pass
 
 class Page:
     def __init__(self, url):
         self.url = url
-
-    pattern = re.compile('<a href="(.*?\.jpg)">')
+    
+    pattern = re.compile(r'<select class="select" .*? onChange="javascript:imgload\(\'(?P<base>.*?)\', this,\'(?P<id>\d+)\'\)">\s*(?P<resolution>.*?)\s*</select>.*?</div>\s*</div>\s*</div>\s*<div class="details">\s*<div>\s*<h1 .*?><a .*?>(?P<title>.*?)</a></h1>\s*<div .*?>By <a .*?>(?P<artist>.*?)</a></div>\s*<div .*?>(?P<date>.*?)</div>', re.DOTALL)
+    
     def parse(self):
         self.req = request.Request(self.url)
         self.req.add_header('User-Agent', UA)
         self.res = request.urlopen(self.req)
         for match in re.finditer(Page.pattern, self.res.read().decode('utf-8')):
-            yield parse.urljoin(self.url, match.group(1))
+            date = datetime.datetime.strptime(re.sub(r'(st|nd|rd|th),', ',', match.group('date')), '%B %d, %Y')
+            yield {'base':match.group('base'),
+                   'id':match.group('id').zfill(5),
+                   'resolution':match.group('resolution'),
+                   'title':match.group('title'),
+                   'artist':match.group('artist'),
+                   'year':date.strftime('%Y'),
+                   'month':date.strftime('%m'),
+                   'day':date.strftime('%d'),
+                   'MONTH':date.strftime('%b'),
+                    }
 
 class NotModifiedHandler(request.BaseHandler):
     def http_error_304(self, req, fp, code, msg, hdrs):
@@ -45,7 +59,7 @@ class Wallpaper:
 
         self.res = opener.open(self.req)
         if hasattr(self.res, 'code') and self.res.code == 304:
-            print('Skipped')
+            raise SkipException
         else:
             self.remotetime = datetime.datetime.strptime(self.res.getheader('Last-Modified'), '%a, %d %b %Y %H:%M:%S GMT')
             self.contents = self.res.read()
@@ -53,43 +67,55 @@ class Wallpaper:
                 f.write(self.contents)
             mtime = round((self.remotetime - datetime.datetime(1970, 1, 1)).total_seconds())
             os.utime(path, (mtime, mtime))
-            print('Saved')
         
-parser = argparse.ArgumentParser(description='Download interfacelift Wallpaper')
-parser.add_argument('resolution', help='The resolution of wallpapers')
-parser.add_argument('directory', help='Directory to save wallpapers')
-parser.add_argument('-l', '--limit', default=-1, type=int, help='Number of wallpapers to download')
-parser.add_argument('--date', dest='sort', action='store_const', const="date", default='date', help='sort by date')
+parser = argparse.ArgumentParser(description='Download interfacelift Wallpaper',
+                                 formatter_class=argparse.RawTextHelpFormatter)
+parser.add_argument('width', type=int, help='The width of wallpapers')
+parser.add_argument('height', type=int, help='The height of wallpapers')
+parser.add_argument('-t', '--template', default='$base', help='Template of saved path\n${base}=northerncastle\n${title}=Northern Castle\n${id}=03467\n${artist}=Nicolas Kamp\n${year}=2014\n${month}=01\n${MONTH}=Jan\n${day}=09')
+parser.add_argument('-l', '--limit', default=-1, type=int, help='Number of wallpapers to download(default: %(default)s)')
+parser.add_argument('--date', dest='sort', action='store_const', const="date", default='date', help='sort by date(default)')
 parser.add_argument('--downloads', dest='sort', action='store_const', const="downloads", default='date', help='sort by downloads')
 parser.add_argument('--rating', dest='sort', action='store_const', const="rating", default='date', help='sort by rating')
 parser.add_argument('--comments', dest='sort', action='store_const', const="comments", default='date', help='sort by comments')
 parser.add_argument('--random', dest='sort', action='store_const', const="random", default='date', help='sort by random')
 
 args = parser.parse_args()
+template = Template(args.template)
 page_number = 1
 count = 0
+empty = True
+pattern0 = re.compile('value="%dx%d"' % (args.width, args.height))
 while True:
     if count == args.limit:
         break
-    page = Page("%s/wallpaper/downloads/%s/%s/index%d.html" % (prefix, args.sort, args.resolution, page_number));
+    page = Page("http://interfacelift.com/wallpaper/downloads/%s/any/index%d.html" % (args.sort, page_number));
     page_number += 1
-    stop = True
-    for url in page.parse():
-        stop = False
+    for item in page.parse():
+        empty = False
         if count == args.limit:
             break
-        count += 1
-        wallpaper = Wallpaper(url)
-        while True:
-            print(count, end='\t')
-            path = os.path.join(args.directory, os.path.basename(wallpaper.url))
-            print(path, end='\t')
-            try:
-                wallpaper.save(path)
-                break
-            except KeyboardInterrupt:
-                raise KeyboardInterrupt
-            except:
-                print('Failed')
-    if stop:
+        if re.search(pattern0, item['resolution']):
+            del item['resolution']
+            item['width'] = int(args.width)
+            item['height'] = int(args.height)
+            url = parse.urljoin(page.url, '/wallpaper/7yz4ma1/%s_%s_%dx%d.jpg' % (item['id'], item['base'], args.width, args.height))
+
+            count += 1
+            wallpaper = Wallpaper(url)
+            while True:
+                path = template.substitute(item)
+                print('\t%d\t%s' % (count, path), end='\r')
+                try:
+                    wallpaper.save(path)
+                    print('Saved')
+                    break
+                except SkipException:
+                    print('Skipped')
+                    break
+                except KeyboardInterrupt:
+                    raise KeyboardInterrupt
+                except:
+                    print('Failed')
+    if empty:
         break
