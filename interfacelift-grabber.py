@@ -43,43 +43,49 @@ class Wallpaper:
             pass
         opener = request.build_opener(NotModifiedHandler())
 
-        while True:
-            self.res = opener.open(self.req)
-            if hasattr(self.res, 'code') and self.res.code == 304:
-                print('Skipped')
-                break
-            else:
-                self.contents = self.res.read()
-                try:
-                    self.remotetime = datetime.datetime.strptime(self.res.getheader('Last-Modified'), '%a, %d %b %Y %H:%M:%S GMT')
-                except TypeError:
-                    continue
-                
-                print('Saved')
-                with open(path, 'wb') as f:
-                    f.write(self.contents)
-                mtime = round((self.remotetime - datetime.datetime(1970, 1, 1)).total_seconds())
-                os.utime(path, (mtime, mtime))
-                break
+        self.res = opener.open(self.req)
+        if hasattr(self.res, 'code') and self.res.code == 304:
+            print('Skipped')
+        else:
+            self.remotetime = datetime.datetime.strptime(self.res.getheader('Last-Modified'), '%a, %d %b %Y %H:%M:%S GMT')
+            self.contents = self.res.read()
+            with open(path, 'wb') as f:
+                f.write(self.contents)
+            mtime = round((self.remotetime - datetime.datetime(1970, 1, 1)).total_seconds())
+            os.utime(path, (mtime, mtime))
+            print('Saved')
         
 parser = argparse.ArgumentParser(description='Download interfacelift Wallpaper')
 parser.add_argument('resolution', help='The resolution of wallpapers')
 parser.add_argument('directory', help='Directory to save wallpapers')
 parser.add_argument('-l', '--limit', default=-1, type=int, help='Number of wallpapers to download')
+parser.add_argument('--date', dest='sort', action='store_const', const="date", default='date', help='sort by date')
+parser.add_argument('--downloads', dest='sort', action='store_const', const="downloads", default='date', help='sort by downloads')
+parser.add_argument('--rating', dest='sort', action='store_const', const="rating", default='date', help='sort by rating')
+parser.add_argument('--comments', dest='sort', action='store_const', const="comments", default='date', help='sort by comments')
+parser.add_argument('--random', dest='sort', action='store_const', const="random", default='date', help='sort by random')
+
 args = parser.parse_args()
 page_number = 1
 count = 0
 while True:
     if count == args.limit:
         break
-    page = Page("%s/wallpaper/downloads/date/%s/index%d.html" % (prefix, args.resolution, page_number));
+    page = Page("%s/wallpaper/downloads/%s/%s/index%d.html" % (prefix, args.sort, args.resolution, page_number));
     page_number += 1
     for url in page.parse():
         if count == args.limit:
             break
         count += 1
         wallpaper = Wallpaper(url)
-        print(count, end='\t')
-        path = os.path.basename(wallpaper.url)
-        print(path, end='\t')
-        wallpaper.save(path)
+        while True:
+            print(count, end='\t')
+            path = os.path.basename(wallpaper.url)
+            print(path, end='\t')
+            try:
+                wallpaper.save(path)
+                break
+            except KeyboardInterrupt:
+                raise KeyboardInterrupt
+            except:
+                print('Failed')
