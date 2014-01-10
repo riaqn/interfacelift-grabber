@@ -73,14 +73,16 @@ while True:
         break
     page = Page("%s/wallpaper/downloads/%s/%s/index%d.html" % (prefix, args.sort, args.resolution, page_number));
     page_number += 1
+    stop = True
     for url in page.parse():
+        stop = False
         if count == args.limit:
             break
         count += 1
         wallpaper = Wallpaper(url)
         while True:
             print(count, end='\t')
-            path = os.path.basename(wallpaper.url)
+            path = os.path.join(args.directory, os.path.basename(wallpaper.url))
             print(path, end='\t')
             try:
                 wallpaper.save(path)
@@ -89,3 +91,5 @@ while True:
                 raise KeyboardInterrupt
             except:
                 print('Failed')
+    if stop:
+        break
