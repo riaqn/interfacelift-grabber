@@ -24,6 +24,9 @@ class SkipException(Exception):
 class ForceException(Exception):
     pass
 
+class FailException(Exception):
+    pass
+
 class QuitException(Exception):
     pass
 
@@ -64,22 +67,28 @@ class Wallpaper:
             pass
 
         self.res = opener.open(self.req)
-        
+
         if hasattr(self.res, 'code') and self.res.code == 304:
             raise SkipException
         else:
-            self.remotetime = datetime.datetime.strptime(self.res.getheader('Last-Modified'), '%a, %d %b %Y %H:%M:%S GMT')
+            try:
+                self.remotetime = datetime.datetime.strptime(self.res.getheader('Last-Modified'), '%a, %d %b %Y %H:%M:%S GMT')
+                self.length = int(self.res.getheader('Content-Length'))
+            except TypeError:
+                raise FailException
             mtime = round((self.remotetime - datetime.datetime(1970, 1, 1)).total_seconds())
-            self.contents = self.res.read()
-
             #make directory if needed
             try:
                 os.makedirs(os.path.dirname(path))
             except os.error:
                 pass
-            
+            self.readed = 0;
             with open(path, 'wb') as f:
-                f.write(self.contents)
+                while self.readed < self.length:
+                    buffer = self.res.read(int(self.length / 100))
+                    f.write(buffer)
+                    self.readed += len(buffer)
+                    print('{0:6d}%'.format(int(self.readed * 100 / self.length)), end='\r')
             #set modified time
             os.utime(path, (mtime, mtime))
             if 'ltime' in locals():
@@ -121,29 +130,29 @@ try:
                 item['width'] = int(args.width)
                 item['height'] = int(args.height)
                 path = template.substitute(item)
-                if path in paths:
+                url = parse.urljoin(page.url, '/wallpaper/7yz4ma1/%s_%s_%dx%d.jpg' % (item['id'], item['base'], args.width, args.height))
+                if path + url in paths:
                     continue
                 else:
-                    paths.append(path)
-                url = parse.urljoin(page.url, '/wallpaper/7yz4ma1/%s_%s_%dx%d.jpg' % (item['id'], item['base'], args.width, args.height))
+                    paths.append(path + url)
                 wallpaper = Wallpaper(url)
                 count += 1
                 while True:
-                    print('\t%d\t%s' % (count, path), end='\r')
+                    print(''.rjust(7), repr(count).rjust(5), path, end='\r')
                     try:
                         wallpaper.save(path)
-                        print('Saved')
+                        print('Saved'.rjust(7))
                         break
                     except SkipException:
-                        print('Skipped')
+                        print('Skipped'.rjust(7))
                         if args.quick:
                             raise QuitException
                         break
                     except ForceException:
-                        print('Forced')
+                        print('Forced'.rjust(7))
                         break
-                    except:
-                        print('Failed')
+                    except FailException:
+                        print('Failed'.rjust(7))
         if empty:
             raise QuitException
 except QuitException:
