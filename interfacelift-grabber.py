@@ -63,8 +63,16 @@ class Wallpaper:
         else:
             self.remotetime = datetime.datetime.strptime(self.res.getheader('Last-Modified'), '%a, %d %b %Y %H:%M:%S GMT')
             self.contents = self.res.read()
+
+            #make directory if needed
+            try:
+                os.makedirs(os.path.dirname(path))
+            except os.error:
+                pass
+            
             with open(path, 'wb') as f:
                 f.write(self.contents)
+            #set modified time
             mtime = round((self.remotetime - datetime.datetime(1970, 1, 1)).total_seconds())
             os.utime(path, (mtime, mtime))
         
