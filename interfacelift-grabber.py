@@ -113,7 +113,6 @@ args = parser.parse_args()
 template = Template(args.template)
 page_number = 1
 count = 0
-empty = True
 pattern0 = re.compile('value="%dx%d"' % (args.width, args.height))
 paths = []
 try:
@@ -122,6 +121,7 @@ try:
             break
         page = Page("/wallpaper/downloads/%s/any/index%d.html" % (args.sort, page_number));
         page_number += 1
+        empty = True
         for item in page.parse():
             empty = False
             if count == args.limit:
