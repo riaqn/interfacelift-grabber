@@ -55,10 +55,15 @@ class Wallpaper:
         self.conn = client.HTTPConnection(host)
         self.conn.request('GET', self.url, headers=headers)
         self.res = self.conn.getresponse()
-        self.url = urlparse(self.res.getheader('Location')).path
+        
+        realurl = urlparse(self.res.getheader('Location')).path
         self.res.read()
-        self.conn.request('GET', self.url, headers=headers)
-        self.res = self.conn.getresponse()
+        self.conn.request('GET', realurl, headers=headers)
+        
+        try:
+            self.res = self.conn.getresponse()
+        except client.BadStatusLine:
+            raise FailException
         
         try:
             self.localtime = round(os.path.getmtime(path))
@@ -69,15 +74,12 @@ class Wallpaper:
 
         try:
             time = datetime.datetime.strptime(self.res.getheader('Last-Modified'), '%a, %d %b %Y %H:%M:%S GMT')
+            self.time = round((time - datetime.datetime(1970, 1, 1)).total_seconds())
             self.size = int(self.res.getheader('Content-Length'))
         except TypeError:
             raise FailException
-        else:
-            self.time = round((time - datetime.datetime(1970, 1, 1)).total_seconds())
-
 
         if (not args.force and self.localtime == self.time and self.localsize == self.size):
-            self.conn.close()
             raise SkipException
             
         try:
@@ -99,7 +101,7 @@ class Wallpaper:
 parser = argparse.ArgumentParser(description='Download wallpaper from interfacelift', formatter_class=argparse.RawTextHelpFormatter)
 parser.add_argument('width', type=int, help='The width of wallpapers')
 parser.add_argument('height', type=int, help='The height of wallpapers')
-parser.add_argument('-t', '--template', default='$base', help='Format of saved path\n${base}=northerncastle\n${title}=Northern Castle\n${id}=03467\n${artist}=Nicolas Kamp\n${year}=2014\n${month}=01\n${MONTH}=Jan\n${day}=09')
+parser.add_argument('-t', '--template', default='${base}', help='Format of saved path(default: %(default)s)\n${base}=northerncastle\n${title}=Northern Castle\n${id}=03467\n${artist}=Nicolas Kamp\n${year}=2014\n${month}=01\n${MONTH}=Jan\n${day}=09')
 parser.add_argument('-l', '--limit', default=-1, type=int, help='Number of wallpapers to download(default: %(default)s)')
 parser.add_argument('-f', '--force', action='store_const', const=True, default=False, help='Do not skip, overwrite existed wallpapers even if timestamp and size is correct')
 parser.add_argument('-q', '--quick', action='store_const', const=True, default=False, help='Quit on first skip')
