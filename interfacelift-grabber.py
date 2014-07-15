@@ -1,165 +1,204 @@
-#! /usr/bin/env python3
-import argparse
-from http import client
-from urllib.parse import urlparse
-import datetime
-import os
-import sys
-import re
-from string import Template
+#!/usr/bin/env python3
+from urllib.request import Request, urlopen
 
-headers = {'User-Agent':'Mozilla/5.0 (X11; Linux i686; rv:24.0) Gecko/20140108 Firefox/24.0'}
-host = 'interfacelift.com'
+UserAgent = 'Mozilla/5.0 (X11; Linux x86_64; rv:30.0) Gecko/20100101 Firefox/30.0';
+headers = {'User-Agent':UserAgent};
 
-class SkipException(Exception):
-    pass
+def date_parse(str):
+    import re
+    from datetime import datetime
+    date_stripped = re.sub(r'(\d)(st|nd|rd|th)', r'\1', str);
+    date = datetime.strptime(date_stripped, '%B %d, %Y');
+    return {'year': date.year,
+            'month': date.month,
+            'day': date.day};
 
-class ForceException(Exception):
-    pass
+def InterfaceLIFT(url):
+    while True:
+        req = Request(url, headers=headers);
+        res = urlopen(req);
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(res);
+
+
+        from urllib.parse import urljoin
+        for item in soup.select('html > body > div#main_page_frame > div#container > div#page > div#wallpaper > div > div.item'):
+            info = {};
+            details = item.select('div.details')[0];
+            preview = item.select('div.preview')[0];
+            info['title'] = details.select('div > h1 > a')[0].string;
+            info['author'] = details.select('div > div > a')[0].string;
+
+            date = details.select('div > div[style*="#444444"]')[0].string;
+            info.update(date_parse(date));
+
+            try:
+                info['description'] = details.select('div > div > p')[0].string;
+            except IndexError:
+                info['description'] = None;
+
+            try:
+                info['download'] = urljoin(url, preview.select('div.download > div > a > img')[0].parent['href']);
+            except IndexError:
+                info['download'] = None;
+                
+            info['downloads'] = {};
+
+            select = preview.select('div.download > select.select')[0];
+            import re
+            match = re.finditer(r"'(.+?)'", select['onchange']);
+            info['base'] = next(match).group(1);
+            info['id'] = int(next(match).group(1));
+
+            for option in preview.select('div.download > select.select > optgroup > option'):
+                info['downloads'][option['value']] = urljoin(url, '/wallpaper/7yz4ma1/{:>05}_{}_{}.jpg'.format(info['id'], info['base'], option['value']));
+            
+            info['preview'] = urljoin(url, preview.select('div > a > img')[0]['src']);
+            info['refer'] = url;
+            yield info;
+
+
+        try:
+            url = urljoin(url, soup.select('a[class^="selector"]')[-1]['href']);
+        except KeyError:
+            break;
 
 class FailException(Exception):
     pass
 
-class QuitException(Exception):
+class SkipException(Exception):
     pass
 
-class Page:
-    def __init__(self, url):
-        self.url = url
+def save(req, path, force):
+    import os
+    res = urlopen(req);
 
-    pattern = re.compile(r'<select class="select" .*? onChange="javascript:imgload\(\'(?P<base>.*?)\', this,\'(?P<id>\d+)\'\)">\s*(?P<resolution>.*?)\s*</select>.*?</div>\s*</div>\s*</div>\s*<div class="details">\s*<div>\s*<h1 .*?><a .*?>(?P<title>.*?)</a></h1>\s*<div .*?>By <a .*?>(?P<artist>.*?)</a></div>\s*<div .*?>(?P<date>.*?)</div>', re.DOTALL)
+    try:
+        localtime = os.path.getmtime(path);
+    except os.error:
+        localtime = -1;
+
+    try:
+        localsize = os.path.getsize(path);
+    except os.error:
+        localsize = -1;
+
+    time = res.getheader('Last-Modified');
+    if time is None:
+        print('Failed');
+        raise FailException;
+
+    from datetime import datetime
+    time = datetime.strptime(time, '%a, %d %b %Y %H:%M:%S GMT').timestamp();
+
+    size = res.getheader('Content-Length');
+    if size is None:
+        print('Failed');
+        raise FailException;
+    size = int(size);
+
+    if not force and time == localtime and size == localsize:
+        print('Skipped');
+        raise SkipException;
+        
+    try:
+        os.makedirs(os.path.dirname(path))
+    except os.error:
+        pass
+
+    with open(path, 'wb') as file:
+
+        offset = 0;
+
+        for percent in range(100):
+            print('{:>2}%'.format(percent), end='\r');
+            buffer = res.read(int(round(size / 100 * (percent + 1) - offset)));
+            offset += len(buffer);
+            file.write(buffer);
+
+    if not len(res.read()) == 0:
+        print('Failed');
+        raise FailException;
+        
+    os.utime(path, (time, time));
     
-    def parse(self):
-        self.conn = client.HTTPConnection(host)
-        self.conn.request('GET', self.url, headers=headers)
-        self.res = self.conn.getresponse()
-        for match in re.finditer(Page.pattern, self.res.read().decode('utf-8')):
-            date = datetime.datetime.strptime(re.sub(r'(st|nd|rd|th),', ',', match.group('date')), '%B %d, %Y')
-            yield {'base':match.group('base'),
-                   'id':match.group('id').zfill(5),
-                   'resolution':match.group('resolution'),
-                   'title':match.group('title'),
-                   'artist':match.group('artist'),
-                   'year':date.strftime('%Y'),
-                   'month':date.strftime('%m'),
-                   'day':date.strftime('%d'),
-                   'MONTH':date.strftime('%b'),
-                    }
+    if time == localtime and size == localsize:
+        print('Forced');
+    else:
+        print('Saved');
 
+def main():
+    import argparse
 
-class Wallpaper:
-    def __init__(self, url):
-        self.url = url;
+    parser = argparse.ArgumentParser(description='Grab wallpapers from InterfaceLIFT', formatter_class=argparse.RawTextHelpFormatter);
 
-    def save(self, path):
-        self.conn = client.HTTPConnection(host)
-        self.conn.request('GET', self.url, headers=headers)
-        self.res = self.conn.getresponse()
-        
-        realurl = urlparse(self.res.getheader('Location')).path
-        self.res.read()
-        self.conn.request('GET', realurl, headers=headers)
-        
-        try:
-            self.res = self.conn.getresponse()
-        except client.BadStatusLine:
-            raise FailException
-        
-        try:
-            self.localtime = round(os.path.getmtime(path))
-            self.localsize = round(os.path.getsize(path))
-        except os.error:
-            self.localtime = 0
-            self.localsize = 0
+    parser.add_argument('-o', '--output', default='InterfaceLIFT_{res}/{author} - {title}.jpg', help='path template to save wallpaper (default: %(default)s)\ntitle="Decay"\nauthor="picturbex"\nyear=2014\nmonth=7\nday=14\nbase="decay"\nid=3641');
+    parser.add_argument('-f', '--force', action='store_true', default=False, help='overwrite exist file even it\'s right (default: %(default)s)');
+    parser.add_argument('-q', '--quick', action='store_true', default=False, help='quit on first skip (default: %(default)s)');
+    parser.add_argument('-r', '--res', help='resolution you want, e.g. 1920x1080');
+    parser.add_argument('-d', '--debug', action='store_true', help='print debug message');
+    parser.add_argument('url', nargs='?', default='http://interfacelift.com/wallpaper/downloads/date/any/', help='page to start parsing (default: %(default)s)');
 
-        try:
-            time = datetime.datetime.strptime(self.res.getheader('Last-Modified'), '%a, %d %b %Y %H:%M:%S GMT')
-            self.time = round((time - datetime.datetime(1970, 1, 1)).total_seconds())
-            self.size = int(self.res.getheader('Content-Length'))
-        except TypeError:
-            raise FailException
+    args = parser.parse_args();
 
-        if (not args.force and self.localtime == self.time and self.localsize == self.size):
-            raise SkipException
-            
-        try:
-            os.makedirs(os.path.dirname(path))
-        except os.error:
-            pass
+    miss = 0;
+    try:
+        for item in InterfaceLIFT(args.url):
+            if args.res is None:
+                for res, download in item['downloads'].items():
+                    if item['download'] == download:
+                        item['res'] = res;
+                        break;
+            else:
+                item['res'] = args.res;
+                item['download'] = item['downloads'].get(item['res'], None);
 
-        self.lsize = 0;
-        with open(path, 'wb') as f:
-            while self.lsize < self.size:
-                buffer = self.res.read(int(self.size / 100))
-                f.write(buffer)
-                self.lsize += len(buffer)
-                print('{0:6d}%'.format(int(self.lsize * 100 / self.size)), end='\r')
-        os.utime(path, (self.time, self.time))
-        if (args.force and self.localtime == self.time and self.localsize == self.size):
-            raise ForceException
-        
-parser = argparse.ArgumentParser(description='Download wallpaper from interfacelift', formatter_class=argparse.RawTextHelpFormatter)
-parser.add_argument('width', type=int, help='The width of wallpapers')
-parser.add_argument('height', type=int, help='The height of wallpapers')
-parser.add_argument('-t', '--template', default='${base}', help='Format of saved path(default: %(default)s)\n${base}=northerncastle\n${title}=Northern Castle\n${id}=03467\n${artist}=Nicolas Kamp\n${year}=2014\n${month}=01\n${MONTH}=Jan\n${day}=09')
-parser.add_argument('-l', '--limit', default=-1, type=int, help='Number of wallpapers to download(default: %(default)s)')
-parser.add_argument('-f', '--force', action='store_const', const=True, default=False, help='Do not skip, overwrite existed wallpapers even if timestamp and size is correct')
-parser.add_argument('-q', '--quick', action='store_const', const=True, default=False, help='Quit on first skip')
-parser.add_argument('--date', dest='sort', action='store_const', const="date", default='date', help='Sort by date(default)')
-parser.add_argument('--downloads', dest='sort', action='store_const', const="downloads", default='date', help='Sort by downloads')
-parser.add_argument('--rating', dest='sort', action='store_const', const="rating", default='date', help='Sort by rating')
-parser.add_argument('--comments', dest='sort', action='store_const', const="comments", default='date', help='Sort by comments')
-parser.add_argument('--random', dest='sort', action='store_const', const="random", default='date', help='Sort by random')
+            if item['download'] == None:
+                miss += 1;
+                if miss % 10 == 0:
+                    print('missed {} wallpapers, consider changing --res and url argument'.format(miss));
+                continue;
+            miss = 0;
 
-args = parser.parse_args()
-template = Template(args.template)
-page_number = 1
-count = 0
-pattern0 = re.compile('value="%dx%d"' % (args.width, args.height))
-paths = []
-try:
-    while True:
-        if count == args.limit:
-            break
-        page = Page("/wallpaper/downloads/%s/any/index%d.html" % (args.sort, page_number));
-        page_number += 1
-        empty = True
-        for item in page.parse():
-            empty = False
-            if count == args.limit:
-                break
-            if re.search(pattern0, item['resolution']):
-                del item['resolution']
-                item['width'] = int(args.width)
-                item['height'] = int(args.height)
-                path = template.substitute(item)
-                url = '/wallpaper/7yz4ma1/%s_%s_%dx%d.jpg' % (item['id'], item['base'], args.width, args.height)
-                if path + url in paths:
-                    continue
+            path = args.output.format(**item);
+            print(' \t{}'.format(path), end='\r');
+
+            req = Request(item['download'], headers=headers);
+            skip = False
+            while True:
+                try:
+                    save(req, path, args.force);
+                    break;
+                except FailException:
+                    pass
+                except SkipException:
+                    skip = True;
+                    break;
+
+            if skip:
+                if args.quick:
+                    break;
                 else:
-                    paths.append(path + url)
-                wallpaper = Wallpaper(url)
-                count += 1
-                while True:
-                    print(''.rjust(7), repr(count).rjust(5), path, end='\r')
-                    try:
-                        wallpaper.save(path)
-                        print('Saved'.rjust(7))
-                        break
-                    except SkipException:
-                        print('Skipped'.rjust(7))
-                        if args.quick:
-                            raise QuitException
-                        break
-                    except ForceException:
-                        print('Forced'.rjust(7))
-                        break
-                    except FailException:
-                        print('Failed'.rjust(7))
-        if empty:
-            raise QuitException
-except QuitException:
-    pass
-finally:
-    print()
+                    continue;
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        print();
+        print(
+            '\
+Error occured, please check your connection. \
+If connection looks right, it may be related \
+to html page change. please feel free to report: \
+qzs123@gmail.com\
+');
+        if args.debug:
+            raise e;
 
+    finally:
+        try:
+            print('Last page: {}'.format(item['refer']))
+        except:
+            pass 
+
+if __name__ == '__main__':
+    main();

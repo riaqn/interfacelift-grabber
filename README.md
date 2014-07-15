@@ -3,50 +3,42 @@ interfacelift-grabber
 
 Grab selected wallpapers from interfacelift
 
-Download wallpapers into different directories according to year and month, directories will be created automatically.
+# Quick Start
 ```
-interfacelift-grabber.py -t 'interfacelift_${width}x${height}/${year}/${month}/${artist}-${title}.jpg' 1280 800
+interfacelift-grabber.py http://interfacelift.com/wallpaper/downloads/date/wide_16:9/1920x1080/
 ```
-Note the single quotes, which avoid the placeholders being explaind by shell
+Wallpapers will be download into `InterfaceLIFT_1920x1080/author - title.jpg`
 
 
-Daily job that you can add to your crontab
+# Perform this command regularly to update
 ```
-interfacelift-grabber.py -q -t 'interfacelift/${base}.jpg' 1280 800
+interfacelift-grabber.py http://interfacelift.com/wallpaper/downloads/date/wide_16:9/1920x1080/ -q
 ```
 -q(--quick) means quit on first skip, saving lots of meaningless skip
 
-```
-usage: interfacelift-grabber.py [-h] [-t TEMPLATE] [-l LIMIT] [-f] [-q]
-                                [--date] [--downloads] [--rating] [--comments]
-                                [--random]
-                                width height
 
-Download wallpaper from interfacelift
+# Help
+```
+usage: interfacelift-grabber.py [-h] [-o OUTPUT] [-f] [-q] [-r RES] [-d] [url]
+
+Grab wallpapers from InterfaceLIFT
 
 positional arguments:
-  width                 The width of wallpapers
-  height                The height of wallpapers
+  url                   page to start parsing (default: http://interfacelift.com/wallpaper/downloads/date/any/)
 
 optional arguments:
   -h, --help            show this help message and exit
-  -t TEMPLATE, --template TEMPLATE
-                        Format of saved path
-                        ${base}=northerncastle
-                        ${title}=Northern Castle
-                        ${id}=03467
-                        ${artist}=Nicolas Kamp
-                        ${year}=2014
-                        ${month}=01
-                        ${MONTH}=Jan
-                        ${day}=09
-  -l LIMIT, --limit LIMIT
-                        Number of wallpapers to download(default: -1)
-  -f, --force           Do not skip, overwrite existed wallpapers even if timestamp and size is correct
-  -q, --quick           Quit on first skip
-  --date                Sort by date(default)
-  --downloads           Sort by downloads
-  --rating              Sort by rating
-  --comments            Sort by comments
-  --random              Sort by random
+  -o OUTPUT, --output OUTPUT
+                        path template to save wallpaper (default: InterfaceLIFT_{res}/{author} - {title}.jpg)
+                        title="Decay"
+                        author="picturbex"
+                        year=2014
+                        month=7
+                        day=14
+                        base="decay"
+                        id=3641
+  -f, --force           overwrite exist file even it's right (default: False)
+  -q, --quick           quit on first skip (default: False)
+  -r RES, --res RES     resolution you want, e.g. 1920x1080
+  -d, --debug           print debug message
 ```
