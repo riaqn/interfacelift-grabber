@@ -136,7 +136,6 @@ def main():
     parser.add_argument('-f', '--force', action='store_true', default=False, help='overwrite exist file even it\'s right (default: %(default)s)');
     parser.add_argument('-q', '--quick', action='store_true', default=False, help='quit on first skip (default: %(default)s)');
     parser.add_argument('-r', '--res', help='resolution you want, e.g. 1920x1080');
-    parser.add_argument('-d', '--debug', action='store_true', help='print debug message');
     parser.add_argument('url', nargs='?', default='http://interfacelift.com/wallpaper/downloads/date/any/', help='page to start parsing (default: %(default)s)');
 
     args = parser.parse_args();
@@ -182,18 +181,6 @@ def main():
                     continue;
     except KeyboardInterrupt:
         pass
-    except Exception as e:
-        print();
-        print(
-            '\
-Error occured, please check your connection. \
-If connection looks right, it may be related \
-to html page change. please feel free to report: \
-qzs123@gmail.com\
-');
-        if args.debug:
-            raise e;
-
     finally:
         try:
             print('Last page: {}'.format(item['refer']))
