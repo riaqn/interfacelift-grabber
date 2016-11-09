@@ -2,6 +2,7 @@ interfacelift-grabber
 =====================
 
 Note: If you just want a wallpaper downloader to keep your desktop fresh, please consider using [variety][http://peterlevi.com/variety/how-to-install/].
+
 Grab selected wallpapers from interfacelift
 
 # Quick Start
